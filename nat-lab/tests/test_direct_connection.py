@@ -2,7 +2,7 @@ from utils import Ping
 from config import DERP_SERVERS
 from contextlib import AsyncExitStack
 from mesh_api import API
-from utils import ConnectionTag, new_connection_by_tag, testing
+from utils import ConnectionTag, new_connection_with_gw, new_connection_by_tag, testing
 from telio import PathType
 from telio_features import TelioFeatures, Direct
 from typing import List
@@ -80,7 +80,6 @@ UHP_conn_client_types = [
 
 
 @pytest.mark.asyncio
-@pytest.mark.timeout(150)
 @pytest.mark.parametrize(
     "endpoint_providers, client1_type, client2_type, reflexive_ip",
     UHP_conn_client_types,
@@ -159,7 +158,6 @@ async def test_direct_working_paths(
 
 
 @pytest.mark.asyncio
-@pytest.mark.timeout(150)
 @pytest.mark.parametrize(
     "endpoint_providers, client1_type, client2_type",
     [
@@ -210,9 +208,8 @@ async def test_direct_working_paths(
         ),
     ],
 )
-@pytest.mark.skip(
-    reason="Negative cases need to be refactored to check if it's actual direct, relay can no longer be easily avoided"
-)
+# Not sure this is needed. It will only be helpful to catch if any
+# libtelio change would make any of these setup work.
 async def test_direct_failing_paths(
     endpoint_providers, client1_type, client2_type
 ) -> None:
@@ -275,20 +272,24 @@ async def test_direct_failing_paths(
                 )
             )
 
-        # TODO: Add CMM messages are going through
+        for server in DERP_SERVERS:
+            await exit_stack.enter_async_context(
+                alpha_client.get_router().break_tcp_conn_to_host(str(server["ipv4"]))
+            )
+            await exit_stack.enter_async_context(
+                beta_client.get_router().break_tcp_conn_to_host(str(server["ipv4"]))
+            )
+
         with pytest.raises(asyncio.TimeoutError):
             async with Ping(alpha_connection, beta.ip_addresses[0]).run() as ping:
                 await testing.wait_long(ping.wait_for_next_ping())
 
 
 @pytest.mark.asyncio
-@pytest.mark.long
 @pytest.mark.parametrize(
     "endpoint_providers, client1_type, client2_type, reflexive_ip",
     UHP_conn_client_types,
 )
-@pytest.mark.timeout(4 * 60)
-@pytest.mark.skip(reason="Test will need to be adapted for direct in the future")
 async def test_direct_short_connection_loss(
     endpoint_providers, client1_type, client2_type, reflexive_ip
 ) -> None:
@@ -296,12 +297,12 @@ async def test_direct_short_connection_loss(
         api = API()
         (alpha, beta) = api.default_config_two_nodes()
 
-        alpha_connection = await exit_stack.enter_async_context(
-            new_connection_by_tag(client1_type)
+        (alpha_connection, alpha_gw) = await exit_stack.enter_async_context(
+            new_connection_with_gw(client1_type)
         )
 
-        beta_connection = await exit_stack.enter_async_context(
-            new_connection_by_tag(client2_type)
+        (beta_connection, beta_gw) = await exit_stack.enter_async_context(
+            new_connection_with_gw(client2_type)
         )
 
         alpha_client = await exit_stack.enter_async_context(
@@ -337,7 +338,7 @@ async def test_direct_short_connection_loss(
             )
         )
 
-        await testing.wait_defined(
+        await testing.wait_lengthy(
             asyncio.gather(
                 alpha_client.handshake(
                     beta.public_key,
@@ -347,22 +348,29 @@ async def test_direct_short_connection_loss(
                     alpha.public_key,
                     PathType.Direct,
                 ),
-            ),
-            120,
+            )
         )
 
-        # Disrupt UHP connection for 25 seconds
+        # Disrupt UHP connection
         async with AsyncExitStack() as temp_exit_stack:
             await temp_exit_stack.enter_async_context(
                 alpha_client.get_router().disable_path(reflexive_ip)
             )
-            await asyncio.sleep(25)
-            with pytest.raises(asyncio.TimeoutError):
-                async with Ping(alpha_connection, beta.ip_addresses[0]).run() as ping:
-                    await testing.wait_short(ping.wait_for_next_ping())
 
-        async with Ping(alpha_connection, beta.ip_addresses[0]).run() as ping:
-            await testing.wait_lengthy(ping.wait_for_next_ping())
+            # Clear conntrack to make UHP disruption faster
+            assert alpha_gw
+            assert beta_gw
+            await alpha_gw.create_process(["conntrack", "-F"]).execute()
+            await beta_gw.create_process(["conntrack", "-F"]).execute()
+
+            # Some docker container combinations requires a sligth wait to work
+            time.sleep(2)
+            with pytest.raises(asyncio.TimeoutError):
+                async with Ping(alpha_connection, beta.ip_addresses[0]) as ping:
+                    await testing.wait_long(ping.wait_for_next_ping())
+
+        async with Ping(alpha_connection, beta.ip_addresses[0]) as ping:
+            await testing.wait_normal(ping.wait_for_next_ping())
 
 
 @pytest.mark.asyncio
@@ -371,8 +379,6 @@ async def test_direct_short_connection_loss(
     "endpoint_providers, client1_type, client2_type, reflexive_ip",
     UHP_conn_client_types,
 )
-@pytest.mark.timeout(4 * 60)
-@pytest.mark.skip(reason="the test is flaky - JIRA issue: LLT-3079")
 async def test_direct_connection_loss_for_infinity(
     endpoint_providers, client1_type, client2_type, reflexive_ip
 ) -> None:
@@ -421,7 +427,7 @@ async def test_direct_connection_loss_for_infinity(
             )
         )
 
-        await testing.wait_defined(
+        await testing.wait_lengthy(
             asyncio.gather(
                 alpha_client.handshake(
                     beta.public_key,
@@ -431,10 +437,10 @@ async def test_direct_connection_loss_for_infinity(
                     alpha.public_key,
                     PathType.Direct,
                 ),
-            ),
-            120,
+            )
         )
 
+        # Break UHP route and wait for relay connection
         async with AsyncExitStack() as temp_exit_stack:
             await temp_exit_stack.enter_async_context(
                 alpha_client.get_router().disable_path(reflexive_ip)
@@ -443,12 +449,11 @@ async def test_direct_connection_loss_for_infinity(
                 async with Ping(alpha_connection, beta.ip_addresses[0]).run() as ping:
                     await testing.wait_short(ping.wait_for_next_ping())
 
-            await testing.wait_defined(
+            await testing.wait_lengthy(
                 asyncio.gather(
                     alpha_client.handshake(beta.public_key),
                     beta_client.handshake(alpha.public_key),
                 ),
-                120,
             )
 
             async with Ping(alpha_connection, beta.ip_addresses[0]).run() as ping:
