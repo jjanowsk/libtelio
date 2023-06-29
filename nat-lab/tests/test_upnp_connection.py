@@ -15,7 +15,7 @@ UPNP_PROVIDER = ["upnp"]
 
 
 @pytest.mark.asyncio
-async def test_upnp_route_corrupted() -> None:
+async def test_upnp_route_removed() -> None:
     async with AsyncExitStack() as exit_stack:
         api = API()
 
@@ -68,16 +68,18 @@ async def test_upnp_route_corrupted() -> None:
 
         # Reset Upnpd on both gateways
         # this also requires to wipe-out the contrack list
+        assert alpha_connection_gw and beta_connection_gw
         await alpha_connection_gw.create_process(["killall", "upnpd"]).execute()
         await beta_connection_gw.create_process(["killall", "upnpd"]).execute()
         await alpha_connection_gw.create_process(["conntrack", "-F"]).execute()
         await beta_connection_gw.create_process(["conntrack", "-F"]).execute()
-        await alpha_connection_gw.create_process(["upnpd", "eth0", "eth1"]).execute()
-        await beta_connection_gw.create_process(["upnpd", "eth0", "eth1"]).execute()
 
         with pytest.raises(asyncio.TimeoutError):
             async with Ping(alpha_connection, beta.ip_addresses[0]).run() as ping:
                 await testing.wait_long(ping.wait_for_next_ping())
+
+        await alpha_connection_gw.create_process(["upnpd", "eth0", "eth1"]).execute()
+        await beta_connection_gw.create_process(["upnpd", "eth0", "eth1"]).execute()
 
         await testing.wait_lengthy(
             asyncio.gather(
@@ -86,7 +88,6 @@ async def test_upnp_route_corrupted() -> None:
             )
         )
 
-        time.sleep(10)
 
         async with Ping(beta_connection, alpha.ip_addresses[0]).run() as ping:
             await testing.wait_long(ping.wait_for_next_ping())
