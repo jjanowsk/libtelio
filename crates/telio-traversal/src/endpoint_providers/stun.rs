@@ -985,7 +985,7 @@ mod tests {
         if let (Packet::Pinger(msg), _) =
             Packet::decode_and_decrypt(&buf[..len], decrypt_transform).unwrap()
         {
-            let resp = msg.pong(msg.get_wg_port(), &addr.ip()).unwrap();
+            let resp = msg.pong(msg.get_wg_port(), &addr).unwrap();
 
             let mut rng = rand::thread_rng();
             let encrypt_transform = |b: &[u8]| {
@@ -1045,7 +1045,7 @@ mod tests {
         if let (Packet::Pinger(msg), _) =
             Packet::decode_and_decrypt(&buf[..len], decrypt_transform).unwrap()
         {
-            let resp = msg.pong(msg.get_wg_port(), &addr.ip()).unwrap();
+            let resp = msg.pong(msg.get_wg_port(), &addr).unwrap();
 
             let mut rng = rand::thread_rng();
             let encrypt_transform = |b: &[u8]| {

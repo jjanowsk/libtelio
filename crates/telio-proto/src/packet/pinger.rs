@@ -1,7 +1,7 @@
 use bytes::BufMut;
 use std::{
     convert::TryInto,
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
 };
 use telio_crypto::PublicKey;
 
@@ -63,20 +63,17 @@ impl PingerMsg {
     }
 
     /// Create new pong packet (response)
-    pub fn pong(
-        &self,
-        wg_port: WGPort,
-        ping_source_address: &IpAddr,
-    ) -> Option<PlaintextPongerMsg> {
-        match ping_source_address {
+    pub fn pong(&self, wg_port: WGPort, ping_source: &SocketAddr) -> Option<PlaintextPongerMsg> {
+        match ping_source.ip() {
             IpAddr::V4(v4address) => Some(PlaintextPongerMsg {
                 session: self.session,
                 msg: Ponger {
                     start_timestamp: self.msg.get_start_timestamp(),
                     ping_source_address: Some(Ponger_oneof_ping_source_address::v4(u32::from(
-                        *v4address,
+                        v4address,
                     ))),
                     wg_port: wg_port.0 as u32,
+                    ping_source_port: ping_source.port() as u32,
                     ..Default::default()
                 },
             }),
@@ -217,10 +214,16 @@ impl PlaintextPongerMsg {
         self.msg.get_start_timestamp()
     }
 
-    /// Get source address of the ping packet as seen by the pinged node
-    pub fn get_ping_source_address(&self) -> CodecResult<Ipv4Addr> {
+    /// Get source endpoint of the ping packet as seen by the pinged node
+    pub fn get_ping_source_endpoint(&self) -> CodecResult<SocketAddr> {
         if self.msg.has_v4() {
-            Ok(Ipv4Addr::from(self.msg.get_v4()))
+            self.msg
+                .get_ping_source_port()
+                .try_into()
+                .map_err(|_| CodecError::DecodeFailed)
+                .map(|port| {
+                    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(self.msg.get_v4()), port))
+                })
         } else {
             Err(CodecError::DecodeFailed)
         }
@@ -407,9 +410,10 @@ mod tests {
         assert_eq!(ping.encode().unwrap(), ping_bytes);
 
         let ping = PingerMsg::ping(WGPort(2), 3_u64, 10_u64);
-        let pong = ping.pong(WGPort(3), &"127.0.0.1".parse().unwrap()).unwrap();
+        let endpoint = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        let pong = ping.pong(WGPort(3), &endpoint).unwrap();
         let pong_bytes =
-            b"\x09\x00\x00\x00\x00\x00\x00\x00\x03\x08\x0A\x10\x03\x1d\x01\x00\x00\x7f";
+            b"\x09\x00\x00\x00\x00\x00\x00\x00\x03\x08\x0A\x10\x03\x28\x90\x3f\x1d\x01\x00\x00\x7f";
         assert_eq!(
             pong.encode_and_encrypt(|b| Ok(b.to_vec())).unwrap(),
             pong_bytes

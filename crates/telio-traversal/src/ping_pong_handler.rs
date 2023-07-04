@@ -102,7 +102,7 @@ impl PingPongHandler {
                 // Respond with pong
                 telio_log_debug!("Received ping from {:?}, responding", addr);
                 let pong = packet
-                    .pong(wg_port, &addr.ip())
+                    .pong(wg_port, addr)
                     .ok_or(Error::FailedToBuildPongPacket)?;
                 let mut rng = self.rng.lock().await;
                 let encrypt_transform = |b: &[u8]| {

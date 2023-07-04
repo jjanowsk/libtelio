@@ -731,8 +731,8 @@ impl<E: Backoff> EndpointConnectivityCheckState<E> {
     ) -> Result<(), Error> {
         match self.state.clone() {
             PingByReceiveCallMeMaybeResponse(m) => {
-                if let Ok(ping_source_address) = event.msg.get_ping_source_address() {
-                    if ping_source_address == self.local_endpoint_candidate.udp.ip() {
+                if let Ok(ping_source_endpoint) = event.msg.get_ping_source_endpoint() {
+                    if ping_source_endpoint == self.local_endpoint_candidate.udp {
                         let remote_endpoint =
                             SocketAddr::new(event.addr.ip(), event.msg.get_wg_port().0);
                         let wg_publish_event = WireGuardEndpointCandidateChangeEvent {
@@ -748,7 +748,7 @@ impl<E: Backoff> EndpointConnectivityCheckState<E> {
                         telio_log_debug!(
                             "Received a pong for session {:?} for a different candidate {:?}. Ignoring",
                             event.msg.get_session(),
-                            event.msg.get_ping_source_address(),
+                            event.msg.get_ping_source_endpoint(),
                         );
                     }
                 } else {
@@ -929,8 +929,9 @@ mod tests {
             .await
             .unwrap();
         wait_for_tick().await;
+        let endpoint = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
         let msg = PingerMsg::ping(WGPort(2), cmm_init.get_session(), 10_u64)
-            .pong(WGPort(2), &IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)))
+            .pong(WGPort(2), &endpoint)
             .unwrap();
         channels
             .pong_rx_events
@@ -1081,7 +1082,7 @@ mod tests {
         );
 
         let msg = PingerMsg::ping(WGPort(2), 1, 10_u64)
-            .pong(WGPort(2), &IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)))
+            .pong(WGPort(2), &endpoint)
             .unwrap();
         endpoint_connectivity_check_state
             .handle_pong_rx_event(
