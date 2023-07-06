@@ -731,26 +731,18 @@ impl<E: Backoff> EndpointConnectivityCheckState<E> {
     ) -> Result<(), Error> {
         match self.state.clone() {
             PingByReceiveCallMeMaybeResponse(m) => {
-                if let Ok(ping_source_endpoint) = event.msg.get_ping_source_endpoint() {
-                    if ping_source_endpoint == self.local_endpoint_candidate.udp {
-                        let remote_endpoint =
-                            SocketAddr::new(event.addr.ip(), event.msg.get_wg_port().0);
-                        let wg_publish_event = WireGuardEndpointCandidateChangeEvent {
-                            public_key: self.public_key,
-                            remote_endpoint,
-                            local_endpoint: self.local_endpoint_candidate.wg,
-                        };
-                        telio_log_info!("Publishing validated WG endpoint: {:?}", wg_publish_event);
-                        wg_ep_publisher.send(wg_publish_event).await?;
-                        self.last_validated_enpoint = Some(remote_endpoint);
-                        do_state_transition!(m, Publish, self);
-                    } else {
-                        telio_log_debug!(
-                            "Received a pong for session {:?} for a different candidate {:?}. Ignoring",
-                            event.msg.get_session(),
-                            event.msg.get_ping_source_endpoint(),
-                        );
-                    }
+                if let Ok(_ping_source_endpoint) = event.msg.get_ping_source_endpoint() {
+                    let remote_endpoint =
+                        SocketAddr::new(event.addr.ip(), event.msg.get_wg_port().0);
+                    let wg_publish_event = WireGuardEndpointCandidateChangeEvent {
+                        public_key: self.public_key,
+                        remote_endpoint,
+                        local_endpoint: self.local_endpoint_candidate.wg,
+                    };
+                    telio_log_info!("Publishing validated WG endpoint: {:?}", wg_publish_event);
+                    wg_ep_publisher.send(wg_publish_event).await?;
+                    self.last_validated_enpoint = Some(remote_endpoint);
+                    do_state_transition!(m, Publish, self);
                 } else {
                     telio_log_warn!(
                         "Received a pong for session {:?} without ping_source_address. Ignoring",
