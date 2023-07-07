@@ -461,9 +461,23 @@ impl<E: Backoff> State<E> {
             &mut self.endpoint_connectivity_check_state,
             &session_id,
         )?;
-        session
+        if let Some(peer_reflexive_ep_candidate) = session
             .handle_pong_rx_event(event, self.io.wg_endpoint_publisher.clone())
-            .await?;
+            .await?
+        {
+            // If we found some new endpoint, add it to peer-reflexive endpoints
+            let endpoint_set = self.gather_all_local_endpoints().unwrap_or_default();
+            if !endpoint_set.contains(&peer_reflexive_ep_candidate) {
+                let mut new_peer_reflexive_endpoints =
+                    self.gather_provider_local_endpoints(EndpointProviderType::PeerReflexive);
+                new_peer_reflexive_endpoints.insert(peer_reflexive_ep_candidate);
+                self.handle_endpoint_change_event((
+                    EndpointProviderType::PeerReflexive,
+                    new_peer_reflexive_endpoints.into_iter().collect(),
+                ))
+                .await?;
+            }
+        }
         Ok(())
     }
 
@@ -728,21 +742,34 @@ impl<E: Backoff> EndpointConnectivityCheckState<E> {
         &mut self,
         event: PongEvent,
         wg_ep_publisher: chan::Tx<WireGuardEndpointCandidateChangeEvent>,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<EndpointCandidate>, Error> {
         match self.state.clone() {
             PingByReceiveCallMeMaybeResponse(m) => {
-                if let Ok(_ping_source_endpoint) = event.msg.get_ping_source_endpoint() {
-                    let remote_endpoint =
-                        SocketAddr::new(event.addr.ip(), event.msg.get_wg_port().0);
-                    let wg_publish_event = WireGuardEndpointCandidateChangeEvent {
-                        public_key: self.public_key,
-                        remote_endpoint,
-                        local_endpoint: self.local_endpoint_candidate.wg,
-                    };
-                    telio_log_info!("Publishing validated WG endpoint: {:?}", wg_publish_event);
-                    wg_ep_publisher.send(wg_publish_event).await?;
-                    self.last_validated_enpoint = Some(remote_endpoint);
-                    do_state_transition!(m, Publish, self);
+                if let Ok(ping_source_endpoint) = event.msg.get_ping_source_endpoint() {
+                    if ping_source_endpoint == self.local_endpoint_candidate.udp {
+                        let remote_endpoint =
+                            SocketAddr::new(event.addr.ip(), event.msg.get_wg_port().0);
+                        let wg_publish_event = WireGuardEndpointCandidateChangeEvent {
+                            public_key: self.public_key,
+                            remote_endpoint,
+                            local_endpoint: self.local_endpoint_candidate.wg,
+                        };
+                        telio_log_info!("Publishing validated WG endpoint: {:?}", wg_publish_event);
+                        wg_ep_publisher.send(wg_publish_event).await?;
+                        self.last_validated_enpoint = Some(remote_endpoint);
+                        do_state_transition!(m, Publish, self);
+                    } else {
+                        telio_log_debug!(
+                            "Received a pong for session {:?} for a different candidate {:?}. Registering as peer-reflexive endpoint.",
+                            event.msg.get_session(),
+                            event.msg.get_ping_source_endpoint(),
+                        );
+
+                        return Ok(Some(EndpointCandidate {
+                            wg: self.local_endpoint_candidate.wg,
+                            udp: ping_source_endpoint,
+                        }));
+                    }
                 } else {
                     telio_log_warn!(
                         "Received a pong for session {:?} without ping_source_address. Ignoring",
@@ -759,7 +786,7 @@ impl<E: Backoff> EndpointConnectivityCheckState<E> {
                 );
             }
         };
-        Ok(())
+        Ok(None)
     }
 
     async fn handle_tick_event(

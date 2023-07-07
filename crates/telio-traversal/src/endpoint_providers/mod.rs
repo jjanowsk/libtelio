@@ -86,6 +86,7 @@ pub enum EndpointProviderType {
     LocalInterfaces,
     Stun,
     Upnp,
+    PeerReflexive,
 }
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
