@@ -80,7 +80,8 @@ RUN \
     sed -i 's/\/sbin\/iptables/\/usr\/sbin\/iptables/g' /etc/upnpd.conf
 
 RUN \
-    ./install_stun_server.sh
+    ./install_stun_server.sh && \
+    rm install_stun_server.sh
 
 RUN \
     cd /opt/iptables && \

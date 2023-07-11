@@ -46,6 +46,8 @@ class DerpServer(DataClassJsonMixin):
     weight: int
     use_plain_text: bool
     conn_state: State
+    # Only for compatibility with telio v3.6
+    used: bool
 
     def __hash__(self):
         return hash(
@@ -302,7 +304,7 @@ class Runtime:
         result = re.search("{(.*)}", json_string)
         if result:
             derp_server_json = DerpServer.schema().loads(
-                "{" + result.group(1).replace("\\", "") + "}"
+                "{" + result.group(1).replace("\\", "") + ',"used":false' + "}"
             )
             assert isinstance(derp_server_json, DerpServer)
             self._set_derp(derp_server_json)
@@ -378,7 +380,7 @@ class Client:
         self._quit = False
 
     @asynccontextmanager
-    async def run(self) -> AsyncIterator["Client"]:
+    async def run(self, telio_v3=False) -> AsyncIterator["Client"]:
         async def on_stdout(stdout: str) -> None:
             supress_print_list = [
                 "MESSAGE_DONE=",
@@ -399,10 +401,18 @@ class Client:
         self._runtime = Runtime()
         self._events = Events(self._runtime)
         self._router = new_router(self._connection)
-        self._process = self._connection.create_process(
-            [tcli_path, "--less-spam", f"-f {self._telio_features.to_json()}"]  # type: ignore
-        )
-
+        if telio_v3:
+            self._process = self._connection.create_process(
+                [
+                    "/opt/bin/tcli-3.6",
+                    "--less-spam",
+                    '-f { "paths": { "priority": ["relay", "udp-hole-punch"]} }',
+                ]
+            )
+        else:
+            self._process = self._connection.create_process(
+                [tcli_path, "--less-spam", f"-f {self._telio_features.to_json()}"]  # type: ignore
+            )
         async with self._process.run(stdout_callback=on_stdout):
             try:
                 await self._process.wait_stdin_ready()
@@ -427,8 +437,10 @@ class Client:
                 await self.save_logs(self._connection)
 
     @asynccontextmanager
-    async def run_meshnet(self, meshmap: Dict[str, Any]) -> AsyncIterator["Client"]:
-        async with self.run():
+    async def run_meshnet(
+        self, meshmap: Dict[str, Any], telio_v3=False
+    ) -> AsyncIterator["Client"]:
+        async with self.run(telio_v3):
             await self.set_meshmap(meshmap)
             yield self
 
