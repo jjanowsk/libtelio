@@ -76,6 +76,24 @@ UHP_conn_client_types = [
         ConnectionTag.DOCKER_OPEN_INTERNET_CLIENT_1,
         DOCKER_OPEN_INTERNET_CLIENT_1_IP,
     ),
+    (
+        LOCAL_PROVIDER,
+        ConnectionTag.DOCKER_SYMMETRIC_CLIENT_1,
+        ConnectionTag.DOCKER_OPEN_INTERNET_CLIENT_1,
+        DOCKER_OPEN_INTERNET_CLIENT_1_IP,
+    ),
+    (
+        LOCAL_PROVIDER,
+        ConnectionTag.DOCKER_CONE_CLIENT_1,
+        ConnectionTag.DOCKER_OPEN_INTERNET_CLIENT_1,
+        DOCKER_OPEN_INTERNET_CLIENT_1_IP,
+    ),
+    (
+        LOCAL_PROVIDER,
+        ConnectionTag.DOCKER_FULLCONE_CLIENT_1,
+        ConnectionTag.DOCKER_OPEN_INTERNET_CLIENT_1,
+        DOCKER_OPEN_INTERNET_CLIENT_1_IP,
+    ),
 ]
 
 
