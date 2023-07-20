@@ -510,7 +510,7 @@ async fn select_endpoint_for_peer<'a>(
     // Use match statemet to cover all possible variants
     match (upgrade_request_endpoint, peer_state, checked_endpoint) {
         // If the other side has requested us to upgrade endpoint -> do that
-        (Some(upgrade_request_endpoint), PeerState::Proxying | PeerState::Disconnected, _) => {
+        (Some(upgrade_request_endpoint), _, _) => {
             telio_log_debug!(
                 "Upgrading peer's {:?} endpoint to {:?} due to request from the other side",
                 public_key,
@@ -519,7 +519,15 @@ async fn select_endpoint_for_peer<'a>(
             if let Some(peer) = actual_peer {
                 telio_log_debug!("Our actual endpoint is: {:?}", peer.endpoint);
             }
-            Ok((Some(*upgrade_request_endpoint), None))
+
+            if (peer_state == PeerState::Upgrading || peer_state == PeerState::Direct)
+                && actual_endpoint.is_some()
+                && actual_endpoint != *proxy_endpoint
+            {
+                Ok((actual_endpoint, None))
+            } else {
+                Ok((Some(*upgrade_request_endpoint), None))
+            }
         }
 
         // Connection is dead-> always force proxy. Note that we may enter this state in direct
@@ -558,7 +566,7 @@ async fn select_endpoint_for_peer<'a>(
         }
 
         // Upgrading, means that we have some direct endpoint within WG. Keep it.
-        (_, PeerState::Upgrading, _) => {
+        (None, PeerState::Upgrading, _) => {
             telio_log_debug!(
                 "Selecting current Direct EP: {:?} {:?}",
                 public_key,
@@ -568,7 +576,7 @@ async fn select_endpoint_for_peer<'a>(
         }
 
         // Direct connection is alive -> just keep it.
-        (_, PeerState::Direct, _) => {
+        (None, PeerState::Direct, _) => {
             telio_log_debug!(
                 "Selecting current Direct EP: {:?} {:?}",
                 public_key,
