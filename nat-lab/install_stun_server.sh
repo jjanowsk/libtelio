@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
+set -euxo pipefail
 
 # Prep
+apt-get install -qy ca-certificates
 echo "deb-src https://deb.debian.org/debian stable main" >> /etc/apt/sources.list
+apt-get update
 export DEBIAN_FRONTEND=noninteractive
 apt-get install -qy devscripts dpkg-dev debhelper
-apt-get update
 
 # Make and enter directory
 mkdir stun-server

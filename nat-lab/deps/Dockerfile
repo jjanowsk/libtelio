@@ -8,6 +8,7 @@ RUN \
     apt-get clean && \
     python3 -m venv --copies /venv && \
     . /venv/bin/activate && \
+    python3 -m pip --no-cache-dir install six && \
     python3 -m pip --no-cache-dir install pynat
 
 FROM debian:stable-slim
@@ -17,6 +18,7 @@ COPY --from=deps-python /venv /venv
 COPY libtelio/nat-lab/3rd-party/iptables /opt/iptables
 COPY libtelio/nat-lab/install_stun_server.sh install_stun_server.sh
 COPY libtelio/nat-lab/patches/stun-server/timeval-fix.patch timeval-fix.patch
+COPY libtelio/nat-lab/data/tclis-3.6.tar /tmp
 ENV PATH=/venv/bin:$PATH
 
 # _ALWAYS_ keep these combined, because `apt-get update` caching _will_ bite you
@@ -88,3 +90,9 @@ RUN \
     ./autogen.sh && \
     ./configure && \
     make
+
+RUN \
+    mkdir /opt/bin && \
+    cd /opt/bin/ && \
+    tar xvf /tmp/tclis-3.6.tar && \
+    chmod +x tcli-*
