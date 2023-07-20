@@ -251,6 +251,7 @@ impl<T: WireGuard, G: GetIfAddrs> State<T, G> {
                 wg_port,
                 &self.udp_socket,
                 &self.pong_publisher,
+                telio_model::api_config::EndpointProvider::Local,
             )
             .await
     }
@@ -588,7 +589,13 @@ mod tests {
                 .unwrap())
         };
         let (msg, _) = PingerMsg::decode_and_decrypt(&buf[..len], decrypt_transform).unwrap();
-        let resp = msg.pong(msg.get_wg_port(), &addr).unwrap();
+        let resp = msg
+            .pong(
+                msg.get_wg_port(),
+                &addr.ip(),
+                telio_model::api_config::EndpointProvider::Local,
+            )
+            .unwrap();
         let mut rng = rand::thread_rng();
         let encrypt_transform =
             |b: &[u8]| Ok(encrypt_response(b, &mut rng, &remote_sk, &local_sk.public()).unwrap());
@@ -642,7 +649,13 @@ mod tests {
                 .unwrap())
         };
         let (msg, _) = PingerMsg::decode_and_decrypt(&buf[..len], decrypt_transform).unwrap();
-        let resp = msg.pong(msg.get_wg_port(), &addr).unwrap();
+        let resp = msg
+            .pong(
+                msg.get_wg_port(),
+                &addr.ip(),
+                telio_model::api_config::EndpointProvider::Local,
+            )
+            .unwrap();
         let mut rng = rand::thread_rng();
         let encrypt_transform =
             |b: &[u8]| Ok(encrypt_response(b, &mut rng, &remote_sk, &local_sk.public()).unwrap());
@@ -715,7 +728,7 @@ mod tests {
         };
         let pong = pong.decrypt(decrypt_transform).unwrap();
         assert_eq!(pong.get_wg_port(), WGPort(wg_port));
-        assert_eq!(pong.get_ping_source_endpoint().unwrap(), provider_addr);
+        assert_eq!(pong.get_ping_source_address().unwrap(), provider_addr.ip());
     }
 
     #[tokio::test]

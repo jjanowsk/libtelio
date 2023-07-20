@@ -461,24 +461,9 @@ impl<E: Backoff> State<E> {
             &mut self.endpoint_connectivity_check_state,
             &session_id,
         )?;
-        if let Some(peer_reflexive_ep_candidate) = session
+        session
             .handle_pong_rx_event(event, self.io.wg_endpoint_publisher.clone())
-            .await?
-        {
-            // If we found some new endpoint, add it to peer-reflexive endpoints
-            let endpoint_set = self.gather_all_local_endpoints().unwrap_or_default();
-            if !endpoint_set.contains(&peer_reflexive_ep_candidate) {
-                let mut new_peer_reflexive_endpoints =
-                    self.gather_provider_local_endpoints(EndpointProviderType::PeerReflexive);
-                new_peer_reflexive_endpoints.insert(peer_reflexive_ep_candidate);
-                self.handle_endpoint_change_event((
-                    EndpointProviderType::PeerReflexive,
-                    new_peer_reflexive_endpoints.into_iter().collect(),
-                ))
-                .await?;
-            }
-        }
-        Ok(())
+            .await
     }
 
     async fn handle_call_me_maybe_rxed_event(
@@ -742,11 +727,16 @@ impl<E: Backoff> EndpointConnectivityCheckState<E> {
         &mut self,
         event: PongEvent,
         wg_ep_publisher: chan::Tx<WireGuardEndpointCandidateChangeEvent>,
-    ) -> Result<Option<EndpointCandidate>, Error> {
+    ) -> Result<(), Error> {
         match self.state.clone() {
             PingByReceiveCallMeMaybeResponse(m) => {
-                if let Ok(ping_source_endpoint) = event.msg.get_ping_source_endpoint() {
-                    if ping_source_endpoint == self.local_endpoint_candidate.udp {
+                let nice_ep_provider = matches!(
+                    event.msg.get_ponging_ep_provider(),
+                    Ok(telio_model::api_config::EndpointProvider::Local)
+                        | Ok(telio_model::api_config::EndpointProvider::Upnp)
+                );
+                if let Ok(ping_source) = event.msg.get_ping_source_address() {
+                    if ping_source == self.local_endpoint_candidate.udp.ip() || nice_ep_provider {
                         let remote_endpoint =
                             SocketAddr::new(event.addr.ip(), event.msg.get_wg_port().0);
                         let wg_publish_event = WireGuardEndpointCandidateChangeEvent {
@@ -760,15 +750,10 @@ impl<E: Backoff> EndpointConnectivityCheckState<E> {
                         do_state_transition!(m, Publish, self);
                     } else {
                         telio_log_debug!(
-                            "Received a pong for session {:?} for a different candidate {:?}. Registering as peer-reflexive endpoint.",
+                            "Received a pong for session {:?} for a different candidate {:?} on stun socket, ignoring.",
                             event.msg.get_session(),
-                            event.msg.get_ping_source_endpoint(),
+                            event.msg.get_ping_source_address(),
                         );
-
-                        return Ok(Some(EndpointCandidate {
-                            wg: self.local_endpoint_candidate.wg,
-                            udp: ping_source_endpoint,
-                        }));
                     }
                 } else {
                     telio_log_warn!(
@@ -786,7 +771,7 @@ impl<E: Backoff> EndpointConnectivityCheckState<E> {
                 );
             }
         };
-        Ok(None)
+        Ok(())
     }
 
     async fn handle_tick_event(
@@ -950,7 +935,11 @@ mod tests {
         wait_for_tick().await;
         let endpoint = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
         let msg = PingerMsg::ping(WGPort(2), cmm_init.get_session(), 10_u64)
-            .pong(WGPort(2), &endpoint)
+            .pong(
+                WGPort(2),
+                &endpoint.ip(),
+                telio_model::api_config::EndpointProvider::Local,
+            )
             .unwrap();
         channels
             .pong_rx_events
@@ -1101,7 +1090,11 @@ mod tests {
         );
 
         let msg = PingerMsg::ping(WGPort(2), 1, 10_u64)
-            .pong(WGPort(2), &endpoint)
+            .pong(
+                WGPort(2),
+                &endpoint.ip(),
+                telio_model::api_config::EndpointProvider::Local,
+            )
             .unwrap();
         endpoint_connectivity_check_state
             .handle_pong_rx_event(

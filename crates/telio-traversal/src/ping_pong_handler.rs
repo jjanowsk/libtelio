@@ -9,6 +9,7 @@ use telio_crypto::{
     encryption::{decrypt_request, decrypt_response, encrypt_request, encrypt_response},
     PublicKey, SecretKey,
 };
+use telio_model::api_config::EndpointProvider;
 use telio_proto::{CodecError, Packet, PacketType, PingerMsg, Session, Timestamp, WGPort};
 use telio_task::io::chan;
 use telio_utils::{telio_log_debug, telio_log_warn};
@@ -84,6 +85,7 @@ impl PingPongHandler {
         wg_port: WGPort,
         udp_socket: &UdpSocket,
         pong_publisher: &Option<chan::Tx<PongEvent>>,
+        endpoint_provider: EndpointProvider,
     ) -> Result<(), Error> {
         let decrypt_transform = |packet_type, buf: &[u8]| {
             match packet_type {
@@ -102,7 +104,7 @@ impl PingPongHandler {
                 // Respond with pong
                 telio_log_debug!("Received ping from {:?}, responding", addr);
                 let pong = packet
-                    .pong(wg_port, addr)
+                    .pong(wg_port, &addr.ip(), endpoint_provider)
                     .ok_or(Error::FailedToBuildPongPacket)?;
                 let mut rng = self.rng.lock().await;
                 let encrypt_transform = |b: &[u8]| {
