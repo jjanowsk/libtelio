@@ -15,7 +15,7 @@ pub(crate) mod forward;
 pub use crate::dns::{DnsResolver, LocalDnsResolver};
 pub use nameserver::{LocalNameServer, NameServer};
 pub use resolver::Resolver;
-pub use zone::Records;
+pub use zone::{Records, TelioRecord};
 
 #[cfg(feature = "mockall")]
 pub use crate::dns::MockDnsResolver;

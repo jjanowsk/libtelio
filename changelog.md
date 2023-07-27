@@ -4,6 +4,7 @@
 * LLT-4002: Review log-levels of spammy log messages
 * LLT-3990: Add initial heartbeat interval to feature config
 * LLT-4008: Add support for AAAA records in telio-dns
+* LLT-4026: Add integration test for AAAA records
 
 <br>
 

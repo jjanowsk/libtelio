@@ -38,7 +38,7 @@ use tokio::{
     time::{interval_at, Interval},
 };
 
-use telio_dns::{DnsResolver, LocalDnsResolver, Records};
+use telio_dns::{DnsResolver, LocalDnsResolver, Records, TelioRecord};
 
 use telio_dns::bind_tun;
 use wg::uapi::{self, PeerState};
@@ -676,27 +676,31 @@ impl RequestedState {
                 Some(ips) => {
                     let ipv4 = ips
                         .iter()
-                        .filter(|&&ip| ip.is_ipv4())
-                        .collect::<Vec<_>>()
-                        .first()
-                        .and_then(|ip| match **ip {
+                        .find(|&ip| ip.is_ipv4())
+                        .and_then(|ip| match *ip {
                             IpAddr::V4(ip) => Some(ip),
                             _ => None,
                         });
 
                     let ipv6 = ips
                         .iter()
-                        .filter(|&&ip| ip.is_ipv6())
-                        .collect::<Vec<_>>()
-                        .first()
-                        .and_then(|ip| match **ip {
+                        .find(|&ip| ip.is_ipv6())
+                        .and_then(|ip| match *ip {
                             IpAddr::V6(ip) => Some(ip),
                             _ => None,
                         });
 
                     match (ipv4, ipv6) {
                         (None, None) => None,
-                        _ => Some((v.hostname.to_owned(), (ipv4, ipv6))),
+                        (Some(ipv4), None) => {
+                            Some((v.hostname.to_owned(), TelioRecord::OnlyIpv4(ipv4)))
+                        }
+                        (None, Some(ipv6)) => {
+                            Some((v.hostname.to_owned(), TelioRecord::OnlyIpv6(ipv6)))
+                        }
+                        (Some(ipv4), Some(ipv6)) => {
+                            Some((v.hostname.to_owned(), TelioRecord::Both(ipv4, ipv6)))
+                        }
                     }
                 }
                 _ => None,
@@ -1770,16 +1774,12 @@ mod tests {
 
         let records = requested_state.collect_dns_records();
 
-        let validate_record =
-            |name: String, expected_ipv4: Option<Ipv4Addr>, expected_ipv6: Option<Ipv6Addr>| {
-                let (ipv4, ipv6) = records[&name].clone();
-                assert_eq!(ipv4, expected_ipv4);
-                assert_eq!(ipv6, expected_ipv6);
-            };
-
-        validate_record(String::from("alpha"), Some(alpha_ipv4), Some(alpha_ipv6));
-        validate_record(String::from("beta"), Some(beta_ipv4), None);
-        validate_record(String::from("gamma"), None, Some(gamma_ipv6));
+        assert_eq!(
+            records["alpha"].clone(),
+            TelioRecord::Both(alpha_ipv4, alpha_ipv6)
+        );
+        assert_eq!(records["beta"].clone(), TelioRecord::OnlyIpv4(beta_ipv4));
+        assert_eq!(records["gamma"].clone(), TelioRecord::OnlyIpv6(gamma_ipv6));
     }
 
     #[cfg(not(windows))]

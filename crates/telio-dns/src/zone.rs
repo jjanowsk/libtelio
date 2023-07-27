@@ -21,11 +21,22 @@ use crate::forward::ForwardAuthority;
 /// organization or administrator.
 pub(crate) type Zones = Catalog;
 
+/// Information stored by records
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum TelioRecord {
+    /// Only IPv4
+    OnlyIpv4(Ipv4Addr),
+    /// Only IPv6
+    OnlyIpv6(Ipv6Addr),
+    /// Both types of IP
+    Both(Ipv4Addr, Ipv6Addr),
+}
+
 /// Records (aka zone files) are instructions that live in authoritative
 /// DNS servers and provide information about a domain including what IP
 /// address is associated with that domain and how to handle requests
 /// for that domain.
-pub type Records = HashMap<String, (Option<Ipv4Addr>, Option<Ipv6Addr>)>;
+pub type Records = HashMap<String, TelioRecord>;
 
 /// AuthoritativeZone is a zone for which the local server references its
 /// own data when responding to queries.
@@ -64,33 +75,34 @@ impl AuthoritativeZone {
         )
         .await;
 
-        for (name, &(ipv4, ipv6)) in records.iter() {
-            if let Some(ip) = ipv4 {
-                zone.upsert(
-                    Record::new()
-                        .set_name(Name::parse(name, None)?)
-                        .set_ttl(900)
-                        .set_rr_type(RecordType::A)
-                        .set_dns_class(DNSClass::IN)
-                        .set_data(Some(RData::A(ip)))
-                        .clone(),
-                    0,
-                )
-                .await;
-            }
+        let build_record = |name: Name, ty: RecordType, data: RData| -> Record {
+            Record::new()
+                .set_name(name)
+                .set_ttl(900)
+                .set_rr_type(ty)
+                .set_dns_class(DNSClass::IN)
+                .set_data(Some(data))
+                .clone()
+        };
 
-            if let Some(ip) = ipv6 {
-                zone.upsert(
-                    Record::new()
-                        .set_name(Name::parse(name, None)?)
-                        .set_ttl(900)
-                        .set_rr_type(RecordType::AAAA)
-                        .set_dns_class(DNSClass::IN)
-                        .set_data(Some(RData::AAAA(ip)))
-                        .clone(),
-                    0,
-                )
-                .await;
+        for (name, record) in records.iter() {
+            let name = Name::parse(name, None)?;
+
+            match *record {
+                TelioRecord::OnlyIpv4(ipv4) => {
+                    zone.upsert(build_record(name, RecordType::A, RData::A(ipv4)), 0)
+                        .await;
+                }
+                TelioRecord::OnlyIpv6(ipv6) => {
+                    zone.upsert(build_record(name, RecordType::AAAA, RData::AAAA(ipv6)), 0)
+                        .await;
+                }
+                TelioRecord::Both(ipv4, ipv6) => {
+                    zone.upsert(build_record(name.clone(), RecordType::A, RData::A(ipv4)), 0)
+                        .await;
+                    zone.upsert(build_record(name, RecordType::AAAA, RData::AAAA(ipv6)), 0)
+                        .await;
+                }
             }
         }
         Ok(AuthoritativeZone { zone })
@@ -324,10 +336,13 @@ mod tests {
         let mut records = HashMap::new();
         records.insert(
             String::from("alpha.nord"),
-            (Some(alpha_ipv4), Some(alpha_ipv6)),
+            TelioRecord::Both(alpha_ipv4, alpha_ipv6),
         );
-        records.insert(String::from("beta.nord"), (Some(beta_ipv4), None));
-        records.insert(String::from("gamma.nord"), (None, Some(gamma_ipv6)));
+        records.insert(String::from("beta.nord"), TelioRecord::OnlyIpv4(beta_ipv4));
+        records.insert(
+            String::from("gamma.nord"),
+            TelioRecord::OnlyIpv6(gamma_ipv6),
+        );
 
         let zone = AuthoritativeZone::new("nord", &records).await.unwrap();
 
