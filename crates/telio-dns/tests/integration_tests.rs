@@ -8,7 +8,7 @@ use std::{
     process::Command,
     sync::Arc,
 };
-use telio_dns::{LocalNameServer, NameServer, Records};
+use telio_dns::{LocalNameServer, NameServer, Records, TelioRecord};
 use tokio::net::UdpSocket;
 
 /// Wireguard key pair.
@@ -136,7 +136,7 @@ async fn dns_over_wireguard() {
     let mut records = Records::new();
     records.insert(
         String::from("alice.nord"),
-        (Some(Ipv4Addr::new(100, 64, 0, 123)), None),
+        TelioRecord::OnlyIpv4(Ipv4Addr::new(100, 64, 0, 123)),
     );
     let nameserver = LocalNameServer::new(&[IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))])
         .await
@@ -166,7 +166,7 @@ async fn dns_over_wireguard() {
 
     records.insert(
         String::from("bob.nord"),
-        (Some(Ipv4Addr::new(100, 64, 0, 213)), None),
+        TelioRecord::OnlyIpv4(Ipv4Addr::new(100, 64, 0, 213)),
     );
 
     nameserver.upsert("nord", &records).await.unwrap();

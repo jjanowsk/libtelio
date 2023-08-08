@@ -13,7 +13,7 @@ use std::{
     sync::Arc,
 };
 use telio_crypto::SecretKey;
-use telio_dns::{LocalNameServer, NameServer, Records};
+use telio_dns::{LocalNameServer, NameServer, Records, TelioRecord};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tokio::{
@@ -300,7 +300,7 @@ async fn dns_request_local() {
     let mut records = Records::new();
     records.insert(
         String::from("test.nord."),
-        (Some(Ipv4Addr::new(100, 100, 100, 100)), None),
+        TelioRecord::OnlyIpv4(Ipv4Addr::new(100, 100, 100, 100)),
     );
     let zone = String::from("nord");
     timeout(
